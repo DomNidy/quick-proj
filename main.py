@@ -6,6 +6,13 @@ from pathlib import Path
 from dataclasses import dataclass, field
 from dataclasses_json import dataclass_json, DataClassJsonMixin, Undefined
 from typing import List, Any, Tuple, Union
+import os
+
+
+def is_windows() -> bool:
+    if os.name == "nt":
+        return True
+    return False
 
 
 class InvalidConfig(Exception):
@@ -21,8 +28,7 @@ class ProjectTemplateNotExists(Exception):
 class EditorOptions:
     """Specifies the command that should be used to open a text editor and any arguments that should be passed along"""
 
-    command: str = "code"
-    args: List[str] = field(default_factory=lambda: [])
+    command: List[str] = field(default_factory=lambda: ["code"])
 
 
 @dataclass_json(undefined=Undefined.RAISE)
@@ -32,9 +38,7 @@ class ProjectTemplate:
 
     template_name: str
     editor_override: EditorOptions = field(default_factory=lambda: None)
-    init_steps: List[Tuple[str, Union[List[str], None]]] = field(
-        default_factory=lambda: []
-    )
+    init_steps: List[List[str]] = field(default_factory=lambda: [])
 
 
 @dataclass
@@ -44,7 +48,12 @@ class Config(DataClassJsonMixin):
     )
     templates: List[ProjectTemplate] = field(
         default_factory=lambda: [
-            ProjectTemplate("Python", init_steps=[("echo", ["Hello!"])])
+            ProjectTemplate(
+                "Python",
+                init_steps=[
+                    (["cmd", "/c"] if is_windows() else []) + ["echo", "Hello!"]
+                ],
+            )
         ]
     )
     editor: EditorOptions = field(default_factory=EditorOptions)
@@ -101,9 +110,7 @@ class Config(DataClassJsonMixin):
             Any: A class instance. The type of this object can be any of the config-related dataclasses (e.g., `EditorOptions`)
         """
         match obj:
-            case {"command": c, "args": a} if isinstance(c, str) and isinstance(
-                a, list
-            ):
+            case {"command": c} if isinstance(c, list):
                 return EditorOptions(**obj)
             case {
                 "base_project_instantiation_directory": _,
@@ -179,17 +186,18 @@ class QuickProject:
             command = [executable]
 
             # If this step has additional arguments, make sure we add them to the command
-            if len(step) == 2:
-                command.extend(*step[1])
+            if len(step) > 1:
+                command.extend(step[1:])
 
             print(command)
+            print(shutil.which("echo"))
             subprocess.run(command)
 
     def open_editor(self):
         """Opens the editor. The editor is specified in the config file."""
         editor_executable_path = shutil.which(self.editor.command)
 
-        subprocess.run(editor_executable_path)
+        subprocess.run(editor_executable_path, shell=True)
 
 
 c = Config()
