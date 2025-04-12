@@ -1,11 +1,10 @@
-import sys
 import json
 import subprocess
 import shutil
 from pathlib import Path
 from dataclasses import dataclass, field
 from dataclasses_json import dataclass_json, DataClassJsonMixin, Undefined
-from typing import List, Any, Tuple, Union
+from typing import List, Any
 from utils import generate_project_title
 import os
 
@@ -87,7 +86,6 @@ class Config(DataClassJsonMixin):
                         f"Tried to load config file, but it was not valid JSON: {e}"
                     )
             for k, v in existing_config.items():
-                # Make sure all fields that we load from the config file exist on the class
                 if not hasattr(self, k):
                     raise InvalidConfig(
                         f'Config file contained unexpected field: "{k}"'
@@ -96,7 +94,6 @@ class Config(DataClassJsonMixin):
 
         self._validate_config()
 
-    @staticmethod
     def _decode_dict_to_class_object(obj: dict[Any, Any]) -> Any:
         """Performs pattern matching on an object and tries to match it to one of the
         classes that the Config object needs.
@@ -199,6 +196,7 @@ class QuickProject:
             )
             raise e
 
+        print(f"Created project folder at: {project_root}")
         try:
             for i, step in enumerate(pt.init_steps):
                 print(f"Step {i+1}: {step}")
@@ -211,7 +209,7 @@ class QuickProject:
                     command.extend(step[1:])
 
                 print(f"\t > {command}")
-                subprocess.run(command)
+                subprocess.run(command, cwd=project_root)
         except Exception as e:
             print(f"Error occured while instantiating the project: {e}")
             print(f'Removing the project dir "{project_root}" as its useless now...')
