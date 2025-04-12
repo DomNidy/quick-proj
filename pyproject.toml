@@ -1,0 +1,12 @@
+[project]
+name = "quick-proj"
+version = "0.1.0"
+description = "A program to quickly setup projects for prototyping/experimenting."
+readme = "README.md"
+authors = [
+    { name = "DomNidy", email = "dominicnidy3@gmail.com" }
+]
+requires-python = ">=3.12"
+dependencies = [
+    "dataclasses-json>=0.6.7",
+]
