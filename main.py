@@ -6,6 +6,7 @@ from pathlib import Path
 from dataclasses import dataclass, field
 from dataclasses_json import dataclass_json, DataClassJsonMixin, Undefined
 from typing import List, Any, Tuple, Union
+from utils import generate_project_title
 import os
 
 
@@ -156,7 +157,7 @@ class QuickProject:
         self.templates = config.templates
         self.editor = config.editor
 
-    def instantiate_project(self, template_name: str):
+    def instantiate_project(self, template_name: str, project_name: None | str = None):
         """Instantiates the template defined by template_name
 
         Args:
@@ -175,23 +176,46 @@ class QuickProject:
                 + ",".join(f'"{pt.template_name}"' for pt in self.templates)
             )
 
-        print(f"Got template: {pt}")
-        for i, step in enumerate(pt.init_steps):
-            print(f"Step {i+1}: {step}")
+        print(f"Got template: {pt.to_json(indent=4)}")
 
-            executable = shutil.which(step[0])
-            if executable is None:
-                executable = step[0]
+        base_project_instantiation_directory = Path(
+            self.base_project_instantiation_directory
+        )
 
-            command = [executable]
+        # If no project_name was provided, construct one
+        if project_name is None:
+            project_name = generate_project_title()
+            while (base_project_instantiation_directory / project_name).exists():
+                continue
 
-            # If this step has additional arguments, make sure we add them to the command
-            if len(step) > 1:
-                command.extend(step[1:])
+        project_root = base_project_instantiation_directory / project_name
 
-            print(command)
-            print(shutil.which("echo"))
-            subprocess.run(command)
+        # Create folder to store project
+        try:
+            project_root.mkdir()
+        except FileExistsError as e:
+            e.add_note(
+                f'This occured during instantiation of project template: "{pt.template_name}"'
+            )
+            raise e
+
+        try:
+            for i, step in enumerate(pt.init_steps):
+                print(f"Step {i+1}: {step}")
+                executable = shutil.which(step[0])
+                if executable is None:
+                    executable = step[0]
+                command = [executable]
+                # If this step has additional arguments, make sure we add them to the command
+                if len(step) > 1:
+                    command.extend(step[1:])
+
+                print(f"\t > {command}")
+                subprocess.run(command)
+        except Exception as e:
+            print(f"Error occured while instantiating the project: {e}")
+            print(f'Removing the project dir "{project_root}" as its useless now...')
+            project_root.rmdir()
 
     def open_editor(self):
         """Opens the editor. The editor is specified in the config file."""
@@ -203,7 +227,6 @@ class QuickProject:
 c = Config()
 app = QuickProject(c)
 app.instantiate_project("Python")
-app.instantiate_project("C")
 
 
 def main():
