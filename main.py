@@ -1,32 +1,31 @@
 import sys
-import os
 import json
+import subprocess
+import shutil
 from pathlib import Path
 from dataclasses import dataclass, field
-from dataclasses_json import dataclass_json
-from typing import List
+from dataclasses_json import dataclass_json, DataClassJsonMixin, Undefined
+from typing import List, Any
 
 
 class InvalidConfigException(Exception):
     pass
 
 
-@dataclass_json
+@dataclass_json(undefined=Undefined.RAISE)
 @dataclass
-class EditorCommand:
+class EditorOptions:
     command: str = "code"
     args: List[str] = field(default_factory=lambda: [])
 
 
-# Store path to config file in the QUICK_PROJ_CONFIG_PATH environment variable
-@dataclass_json
 @dataclass
-class Config:
+class Config(DataClassJsonMixin):
     base_project_instantiation_directory: str = field(
         default_factory=lambda: str(Path.home() / "quick-projects")
     )
     templates: List[str] = field(default_factory=lambda: ["Python", "C++", "C", "Rust"])
-    editor: EditorCommand = field(default_factory=EditorCommand)
+    editor: EditorOptions = field(default_factory=EditorOptions)
 
     def __post_init__(self):
         # Create .quick-proj if it doesn't exist
@@ -48,7 +47,13 @@ class Config:
         else:
             with open(config_path, "r") as f:
                 try:
-                    existing_config = json.load(f)
+
+                    # ISSUE: Need to decode to the appropriate classes when loading from json
+                    # For example, the EditorOptions object needs to be deserialized into the class,
+                    # right now its just loaded as a plain old dict.
+                    existing_config = json.load(
+                        f, object_hook=Config._decode_json_object_to_class_object
+                    )
                 except json.JSONDecodeError as e:
                     raise InvalidConfigException(
                         f"Tried to load config file, but it was not valid JSON: {e}"
@@ -63,6 +68,20 @@ class Config:
 
         self._validate_config()
 
+    @staticmethod
+    def _decode_json_object_to_class_object(obj: dict[Any, Any]) -> Any:
+        match obj:
+            case {"command": _, "args": _}:
+                return EditorOptions(**obj)
+            case {
+                "base_project_instantiation_directory": _,
+                "templates": _,
+                "editor": _,
+            }:
+                return obj
+            case _:
+                pass
+
     def _validate_config(self):
         base_project_instantiation_directory = Path(
             self.base_project_instantiation_directory
@@ -74,15 +93,25 @@ class Config:
             base_project_instantiation_directory.mkdir()
 
 
+class QuickProject:
+    def __init__(self, config: Config) -> None:
+        self.base_project_instantiation_directory = (
+            config.base_project_instantiation_directory
+        )
+        self.templates = config.templates
+        self.editor = config.editor
+
+    def open_editor(self):
+        """Opens the editor. The editor is specified in the config file."""
+        editor_executable_path = shutil.which(self.editor.command)
+        subprocess.run(editor_executable_path)
+
+
 c = Config()
+app = QuickProject(c)
+print(app.open_editor())
 
 
-# When we instantiate a template project, we need to:
-# 1. Create directory somewhere
-# 2. Run some commands afterwards
-# So basically, a template is just a sequence of commands that we need to execute
-# but we need some kind of config file to store defaults used to instantiate all projects.
-# For example, where on disk should the project folders be created?
 def main():
     print(sys.argv)
     print("Hello from quick-proj!")
