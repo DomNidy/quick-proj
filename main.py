@@ -1,14 +1,11 @@
-import json
 import subprocess
 import shutil
 from pathlib import Path
-from dataclasses import dataclass, field
-from dataclasses_json import dataclass_json, Undefined
 from typing import List, Union, Optional, Annotated
 from utils import generate_project_title
-from pydantic import BaseModel, Field, field_validator, ValidationError
+from pydantic import BaseModel, Field, field_validator
 import os
-import shutil
+import argparse
 
 
 def is_windows() -> bool:
@@ -62,7 +59,7 @@ class ProjectTemplate(BaseModel):
     init_steps: Annotated[
         List[List[str]],
         Field(
-            description="The sequence of commands to execute while instantiating the template. These commands will be executed with the current working directory being set to newly created project's folder"
+            description="The sequence of commands to execute while instantiating the template. These commands will be executed with the current working directory being set to newly created project's folder. These commands effectively define what content will be inside of the project and should be used to create files or perform any necessary setup. For example, you can clone a git repo here, manually create a file, etc."
         ),
     ]
 
@@ -142,8 +139,6 @@ class QuickProject:
                 + ",".join(f'"{pt.name}"' for pt in self.templates)
             )
 
-        print(f"Got template: {pt.model_dump_json(indent=4)}")
-
         # If no project_name was provided, construct one
         if project_name is None:
             project_name = generate_project_title()
@@ -162,39 +157,58 @@ class QuickProject:
             project_root_path.mkdir()
         except FileExistsError as e:
             e.add_note(
-                f'This occured during instantiation of project template: "{pt.template_name}"'
+                f'This occured during instantiation of project template: "{pt.name}"'
             )
             raise e
 
         print(f"Created project folder at: {project_root_path}")
 
         # Now, execute all commands in the template
-        try:
-            for i, step in enumerate(pt.init_steps):
-                print(f"Step {i+1}: {step}")
-                executable = shutil.which(step[0])
-                if executable is None:
-                    executable = step[0]
-                command = [executable]
-                # If this step has additional arguments, make sure we add them to the command
-                if len(step) > 1:
-                    command.extend(step[1:])
+        for i, step in enumerate(pt.init_steps):
+            print(f"Step {i+1}: {step}")
+            executable = shutil.which(step[0])
+            if executable is None:
+                executable = step[0]
+            command = [executable]
+            # If this step has additional arguments, make sure we add them to the command
+            if len(step) > 1:
+                command.extend(step[1:])
 
-                print(f"\t > {command}")
-                subprocess.run(command, cwd=project_root_path)
-        except Exception as e:
-            print(f"Error occured while instantiating the project: {e}")
-            print(
-                f'Removing the project dir "{project_root_path}" as its useless now...'
-            )
+            print(f"\t > {command}")
+            try:
+                subprocess.run(command, cwd=project_root_path, capture_output=True)
+            except Exception as e:
+                print(f"Error occured while instantiating the project: {e}")
+                print(f"Last command that was ran: {command}")
+                print(
+                    f'Removing the project dir "{project_root_path}" as its useless now...'
+                )
 
-            project_root_path.rmdir()
+                try:
+                    project_root_path.rmdir()
+                except OSError as e:
+                    e.add_note(
+                        f"You may need to remove the directory manually, path: {str(project_root_path)}"
+                    )
+                    raise
 
-    def open_editor(self):
-        """Opens the editor. The editor is specified in the config file."""
+    def open_editor(self, path: str):
+        """Open the directory using the configured editor.
+
+        The command that will be executed is of the form:
+        `editor_executable_path <path>`
+
+        TODO: Add better support for different text editors.
+
+        Args:
+            path (str): Path to the directory to open
+        """
         editor_executable_path = shutil.which(self.editor.command)
-
-        subprocess.run(editor_executable_path, shell=True)
+        print(editor_executable_path)
+        subprocess.run(
+            [editor_executable_path, path],
+            shell=True,
+        )
 
 
 def load_config(config_path: Optional[Union[Path, str]] = None) -> "Config":
@@ -237,13 +251,29 @@ def load_config(config_path: Optional[Union[Path, str]] = None) -> "Config":
     return Config.model_validate_json(config_path.read_text(), strict=True)
 
 
-c = load_config()
-app = QuickProject(c)
-app.instantiate_project("Python Application (UV)")
-
-
 def main():
-    pass
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--config-path", type=Path, default=None, help="Path to the config file"
+    )
+    parser.add_argument(
+        "--template-name",
+        type=str,
+        default=None,
+        help="Name of the template to instantiate",
+    )
+    parser.add_argument(
+        "--project-name",
+        type=str,
+        default=None,
+        help="Name of the project to instantiate",
+    )
+    args = parser.parse_args()
+
+    c = load_config(args.config_path)
+
+    app = QuickProject(c)
+    app.instantiate_project(args.template_name, args.project_name)
 
 
 if __name__ == "__main__":

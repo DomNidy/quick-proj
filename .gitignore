@@ -8,3 +8,7 @@ wheels/
 
 # Virtual environments
 .venv
+
+*.mdc
+.cursor/*
+.cursor/
